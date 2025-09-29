@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zenchain Testnet Wallet Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@latest/dist/web3.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f4f4f4;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+        }
+        .section {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background: #f8f9fa;
+        }
+        .error {
+            color: red;
+        }
+        a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Zenchain Testnet Wallet Tracker</h1>
+        <p>Masukkan alamat wallet Zenchain (0x...):</p>
+        <input type="text" id="walletInput" placeholder="Contoh: 0xA1fc6755E0a3551679ac48F8d899F120BFaa8c04">
+        <button onclick="fetchData()">Cek Wallet</button>
+        
+        <div id="loading" class="loading" style="display: none;">Loading...</div>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const RPC_URL = 'https://zenchain-testnet.api.onfinality.io/public';
+        const EXPLORER_API = 'https://zentrace.io/api';
+        const CHAIN_ID = 8408;
+        const NATIVE_TOKEN = 'ZTC';
+        const DECIMALS = 18;
+        const NFT_CONTRACT = '0x5a9525389B2c53c56BC3a2e4Fcdb4DC88326550d';
+        const STAKING_CONTRACT = '0x0000000000000000000000000000000000000800';
+
+        let web3;
+
+        async function initWeb3() {
+            if (!web3) {
+                web3 = new Web3(new Web3.providers.HttpProvider(RPC_URL));
+            }
+        }
+
+        async function fetchData() {
+            const wallet = document.getElementById('walletInput').value.trim();
+            if (!wallet || !web3.utils.isAddress(wallet)) {
+                alert('Alamat wallet tidak valid!');
+                return;
+            }
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').innerHTML = '';
+
+            try {
+                await initWeb3();
+
+                // 1. Saldo ZTC
+                const balanceWei = await web3.eth.getBalance(wallet);
+                const balance = web3.utils.fromWei(balanceWei, 'ether');
+
+                // 2. Transaksi (via Blockscout API - 10 latest tx)
+                const txUrl = `${EXPLORER_API}/?module=account&action=txlist&address=${wallet}&sort=desc`;
+                let transactions = [];
+                try {
+                    const txRes = await fetch(txUrl);
+                    const txData = await txRes.json();
+                    transactions = txData.result ? txData.result.slice(0, 10) : [];
+                } catch (e) {
+                    console.log('Error fetching transactions:', e);
+                }
+
+                // 3. NFT (query balanceOf dari ERC721 contract)
+                const nftAbi = [
+                    {
+                        "constant": true,
+                        "inputs": [{ "name": "_owner", "type": "address" }],
+                        "name": "balanceOf",
+                        "outputs": [{ "name": "", "type": "uint256" }],
+                        "type": "function"
+                    }
+                ];
+                const nftContractInstance = new web3.eth.Contract(nftAbi, NFT_CONTRACT);
+                let nftCount = 0;
+                try {
+                    nftCount = await nftContractInstance.methods.balanceOf(wallet).call();
+                } catch (e) {
+                    console.log('NFT query error:', e);
+                }
+
+                // 4. Staking (query bonded amount - asumsi method 'bonded(address)')
+                let stakingInfo = { bonded: 'N/A', rewards: 'N/A' };
+                try {
+                    const stakingAbi = [
+                        {
+                            "constant": true,
+                            "inputs": [{ "name": "_account", "type": "address" }],
+                            "name": "bonded",
+                            "outputs": [{ "name": "", "type": "uint256" }],
+                            "type": "function"
+                        }
+                    ];
+                    const stakingContractInstance = new web3.eth.Contract(stakingAbi, STAKING_CONTRACT);
+                    const bondedWei = await stakingContractInstance.methods.bonded(wallet).call();
+                    stakingInfo.bonded = web3.utils.fromWei(bondedWei, 'ether');
+                } catch (e) {
+                    console.log('Staking query error:', e);
+                    stakingInfo.bonded = 'Error fetching staking data';
+                }
+
+                // Render hasil
+                let html = `
+                    <div class="section">
+                        <h2>Saldo ${NATIVE_TOKEN}</h2>
+                        <p>${parseFloat(balance).toFixed(4)} ZTC</p>
+                    </div>
+                    <div class="section">
+                        <h2>Data Transaksi (10 Terbaru)</h2>
+                        <table>
+                            <tr><th>Hash</th><th>From</th><th>To</th><th>Value</th><th>Time</th></tr>
+                            ${transactions.length > 0 ? transactions.map(tx => `
+                                <tr>
+                                    <td><a href="https://zentrace.io/tx/${tx.hash}" target="_blank">${tx.hash.slice(0, 10)}...</a></td>
+                                    <td>${tx.from.slice(0, 10)}...</td>
+                                    <td>${tx.to ? tx.to.slice(0, 10) + '...' : 'Contract'}</td>
+                                    <td>${web3.utils.fromWei(tx.value, 'ether')} ZTC</td>
+                                    <td>${new Date(tx.timeStamp * 1000).toLocaleString()}</td>
+                                </tr>
+                            `).join('') : '<tr><td colspan="5">No transactions found</td></tr>'}
+                        </table>
+                    </div>
+                    <div class="section">
+                        <h2>Data NFT</h2>
+                        <p>Jumlah NFT: ${nftCount} (Contract: ${NFT_CONTRACT})</p>
+                    </div>
+                    <div class="section">
+                        <h2>Data Staking</h2>
+                        <p>Bonded Amount: ${stakingInfo.bonded} ZTC</p>
+                        <p><em>Stake/unstake via <a href="https://node.zenchain.io/#/staking" target="_blank">ZenChain Node Station</a>.</em></p>
+                    </div>
+                `;
+                document.getElementById('results').innerHTML = html;
+            } catch (error) {
+                document.getElementById('results').innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // Inisialisasi
+        document.getElementById('walletInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') fetchData();
+        });
+    </script>
+</body>
+</html>
