@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenChain Wallet Tracker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            width: calc(100% - 100px);
+            padding: 10px;
+            margin-right: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+        }
+        .section {
+            margin-bottom: 20px;
+        }
+        @media (max-width: 600px) {
+            input[type="text"] {
+                width: 100%;
+                margin-bottom: 10px;
+            }
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ZenChain Wallet Tracker</h1>
+        <div class="input-group">
+            <input type="text" id="walletAddress" placeholder="Masukkan alamat wallet (0x...)">
+            <button onclick="trackWallet()">Track</button>
+        </div>
+        <div id="error" class="error"></div>
+
+        <div class="section" id="balanceSection" style="display: none;">
+            <h2>Saldo</h2>
+            <p id="balance"></p>
+        </div>
+
+        <div class="section" id="transactionsSection" style="display: none;">
+            <h2>Transaksi (Terbaru)</h2>
+            <table id="transactionsTable">
+                <thead>
+                    <tr>
+                        <th>Hash</th>
+                        <th>Dari</th>
+                        <th>Ke</th>
+                        <th>Nilai (ZTC)</th>
+                        <th>Block</th>
+                    </tr>
+                </thead>
+                <tbody id="transactionsBody"></tbody>
+            </table>
+        </div>
+
+        <div class="section" id="nftsSection" style="display: none;">
+            <h2>NFT</h2>
+            <ul id="nftsList"></ul>
+        </div>
+
+        <div class="section" id="stakingSection" style="display: none;">
+            <h2>Data Staking</h2>
+            <p id="stakingType"></p>
+            <p id="stakingDetails"></p>
+            <p id="rewardDestination"></p>
+        </div>
+    </div>
+
+    <script src="lib/ethers.umd.min.js"></script>
+    <script>
+        if (typeof ethers === 'undefined') {
+            document.getElementById('error').textContent = 'Gagal memuat ethers.js. Pastikan file lib/ethers.umd.min.js ada.';
+            throw new Error('ethers.js not loaded');
+        }
+
+        const RPC_URL = 'https://zenchain-testnet.api.onfinality.io/public';
+        const NFT_CONTRACT_ADDRESS = '0x5a9525389B2c53c56BC3a2e4Fcdb4DC88326550d';
+        const STAKING_CONTRACT_ADDRESS = '0x0000000000000000000000000000000000000800';
+        const NATIVE_TOKEN_DECIMALS = 18;
+        const NATIVE_TOKEN_SYMBOL = 'ZTC';
+        const EXPLORER_API_URL = 'https://zentrace.io/api'; // Ganti dengan API Blockscout jika tersedia
+
+        const NFT_ABI = [
+            [
+    {
+        "inputs": [
+            {
+                "internalType": "string",
+                "name": "tokenName",
+                "type": "string"
+            },
+            {
+                "internalType": "string",
+                "name": "tokenSymbol",
+                "type": "string"
+            },
+            {
+                "internalType": "string",
+                "name": "initialTokenUri",
+                "type": "string"
+            },
+            {
+                "internalType": "uint256",
+                "name": "initialMaxSupply",
+                "type": "uint256"
+            },
+            {
+                "internalType": "uint256",
+                "name": "initialMintPrice",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "constructor"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "sender",
+                "type": "address"
+            },
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            },
+            {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+            }
+        ],
+        "name": "ERC721IncorrectOwner",
+        "type": "error"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "operator",
+                "type": "address"
+            },
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "ERC721InsufficientApproval",
+        "type": "error"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "approver",
+                "type": "address"
+            }
+        ],
+        "name": "ERC721InvalidApprover",
+        "type": "error"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "operator",
+                "type": "address"
+            }
+        ],
+        "name": "ERC721InvalidOperator",
+        "type": "error"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+            }
+        ],
+        "name": "ERC721InvalidOwner",
+        "type": "error"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "receiver",
+                "type": "address"
+            }
+        ],
+        "name": "ERC721InvalidReceiver",
+        "type": "error"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "sender",
+                "type": "address"
+            }
+        ],
+        "name": "ERC721InvalidSender",
+        "type": "error"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "ERC721NonexistentToken",
+        "type": "error"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+            }
+        ],
+        "name": "OwnableInvalidOwner",
+        "type": "error"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+            }
+        ],
+        "name": "OwnableUnauthorizedAccount",
+        "type": "error"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+            },
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "approved",
+                "type": "address"
+            },
+            {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "Approval",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+            },
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "operator",
+                "type": "address"
+            },
+            {
+                "indexed": false,
+                "internalType": "bool",
+                "name": "approved",
+                "type": "bool"
+            }
+        ],
+        "name": "ApprovalForAll",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "newSupply",
+                "type": "uint256"
+            }
+        ],
+        "name": "MaxSupplyChanged",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "newPrice",
+                "type": "uint256"
+            }
+        ],
+        "name": "MintPriceChanged",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+            },
+            {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            },
+            {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "price",
+                "type": "uint256"
+            },
+            {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "timestamp",
+                "type": "uint256"
+            }
+        ],
+        "name": "Minted",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "previousOwner",
+                "type": "address"
+            },
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "newOwner",
+                "type": "address"
+            }
+        ],
+        "name": "OwnershipTransferred",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "string",
+                "name": "newTokenUri",
+                "type": "string"
+            }
+        ],
+        "name": "TokenUriChanged",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "from",
+                "type": "address"
+            },
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+            },
+            {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "Transfer",
+        "type": "event"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+            },
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "approve",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+            }
+        ],
+        "name": "balanceOf",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "getApproved",
+        "outputs": [
+            {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+            },
+            {
+                "internalType": "address",
+                "name": "operator",
+                "type": "address"
+            }
+        ],
+        "name": "isApprovedForAll",
+        "outputs": [
+            {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "maxSupply",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "mint",
+        "outputs": [],
+        "stateMutability": "payable",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "mintPrice",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "name",
+        "outputs": [
+            {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "owner",
+        "outputs": [
+            {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "ownerOf",
+        "outputs": [
+            {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "renounceOwnership",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "from",
+                "type": "address"
+            },
+            {
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+            },
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "safeTransferFrom",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "from",
+                "type": "address"
+            },
+            {
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+            },
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            },
+            {
+                "internalType": "bytes",
+                "name": "data",
+                "type": "bytes"
+            }
+        ],
+        "name": "safeTransferFrom",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "operator",
+                "type": "address"
+            },
+            {
+                "internalType": "bool",
+                "name": "approved",
+                "type": "bool"
+            }
+        ],
+        "name": "setApprovalForAll",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint256",
+                "name": "newMaxSupply",
+                "type": "uint256"
+            }
+        ],
+        "name": "setMaxSupply",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint256",
+                "name": "newPrice",
+                "type": "uint256"
+            }
+        ],
+        "name": "setMintPrice",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "string",
+                "name": "newTokenUri",
+                "type": "string"
+            }
+        ],
+        "name": "setTokenUri",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "bytes4",
+                "name": "interfaceId",
+                "type": "bytes4"
+            }
+        ],
+        "name": "supportsInterface",
+        "outputs": [
+            {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "symbol",
+        "outputs": [
+            {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "tokenURI",
+        "outputs": [
+            {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "totalSupply",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "from",
+                "type": "address"
+            },
+            {
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+            },
+            {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+            }
+        ],
+        "name": "transferFrom",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "newOwner",
+                "type": "address"
+            }
+        ],
+        "name": "transferOwnership",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "withdraw",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    }
+]
+        ];
+
+        const STAKING_ABI = [
+            {"inputs":[{"internalType":"address","name":"who","type":"address"}],"name":"payee","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"who","type":"address"}],"name":"rewardDestination","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"who","type":"address"}],"name":"validatorPrefs","outputs":[{"components":[{"internalType":"uint32","name":"commission","type":"uint32"},{"internalType":"bool","name":"blocked","type":"bool"}],"internalType":"struct ValidatorPrefs","name":"","type":"tuple"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"who","type":"address"}],"name":"nominatorPrefs","outputs":[{"components":[{"internalType":"address[]","name":"targets","type":"address[]"},{"internalType":"uint32","name":"submissionEra","type":"uint32"},{"internalType":"bool","name":"suppressed","type":"bool"}],"internalType":"struct NominatorPrefs","name":"","type":"tuple"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"currentEra","outputs":[{"internalType":"uint32","name":"","type":"uint32"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"uint32","name":"eraIndex","type":"uint32"},{"internalType":"address","name":"validatorStash","type":"address"}],"name":"erasValidatorTotalStake","outputs":[{"components":[{"internalType":"uint128","name":"total","type":"uint128"},{"internalType":"uint128","name":"own","type":"uint128"}],"internalType":"struct Exposure","name":"","type":"tuple"}],"stateMutability":"view","type":"function"}
+        ];
+
+        const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+        const nftContract = new ethers.Contract(NFT_CONTRACT_ADDRESS, NFT_ABI, provider);
+        const stakingContract = new ethers.Contract(STAKING_CONTRACT_ADDRESS, STAKING_ABI, provider);
+
+        async function getTransactions(walletAddress) {
+            try {
+                const response = await fetch(`${EXPLORER_API_URL}?module=account&action=txlist&address=${walletAddress}&sort=desc&page=1&offset=50`);
+                const data = await response.json();
+                if (data.status === '1') {
+                    return data.result.map(tx => ({
+                        hash: tx.hash,
+                        from: tx.from,
+                        to: tx.to || 'Contract Creation',
+                        value: ethers.utils.formatUnits(tx.value, NATIVE_TOKEN_DECIMALS),
+                        blockNumber: parseInt(tx.blockNumber)
+                    }));
+                }
+            } catch (e) {
+                console.warn('API explorer gagal, menggunakan block scanning:', e);
+            }
+            // Fallback: scan 10 block terakhir
+            const transactions = [];
+            const latestBlock = await provider.getBlockNumber();
+            for (let i = Math.max(0, latestBlock - 10); i <= latestBlock; i++) {
+                const block = await provider.getBlockWithTransactions(i);
+                block.transactions.forEach(tx => {
+                    if (tx.from.toLowerCase() === walletAddress.toLowerCase() || (tx.to && tx.to.toLowerCase() === walletAddress.toLowerCase())) {
+                        transactions.push({
+                            hash: tx.hash,
+                            from: tx.from,
+                            to: tx.to || 'Contract Creation',
+                            value: ethers.utils.formatUnits(tx.value, NATIVE_TOKEN_DECIMALS),
+                            blockNumber: i
+                        });
+                    }
+                });
+            }
+            return transactions;
+        }
+
+        async function trackWallet() {
+            const walletAddress = document.getElementById('walletAddress').value.trim();
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = '';
+
+            if (!ethers.utils.isAddress(walletAddress)) {
+                errorDiv.textContent = 'Alamat wallet tidak valid';
+                return;
+            }
+
+            try {
+                // Balance
+                const balanceWei = await provider.getBalance(walletAddress);
+                const balance = ethers.utils.formatUnits(balanceWei, NATIVE_TOKEN_DECIMALS);
+                document.getElementById('balance').textContent = `${balance} ${NATIVE_TOKEN_SYMBOL}`;
+                document.getElementById('balanceSection').style.display = 'block';
+
+                // Transactions
+                const transactionsBody = document.getElementById('transactionsBody');
+                transactionsBody.innerHTML = '';
+                const transactions = await getTransactions(walletAddress);
+                transactions.forEach(tx => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${tx.hash.slice(0, 10)}...</td>
+                        <td>${tx.from.slice(0, 10)}...</td>
+                        <td>${tx.to.slice(0, 10)}...</td>
+                        <td>${tx.value}</td>
+                        <td>${tx.blockNumber}</td>
+                    `;
+                    transactionsBody.appendChild(row);
+                });
+                document.getElementById('transactionsSection').style.display = transactions.length > 0 ? 'block' : 'none';
+
+                // NFTs
+                const nftsList = document.getElementById('nftsList');
+                nftsList.innerHTML = '';
+                let nftBalance;
+                try {
+                    nftBalance = await nftContract.balanceOf(walletAddress);
+                    for (let i = 0; i < nftBalance; i++) {
+                        const tokenId = await nftContract.tokenOfOwnerByIndex(walletAddress, i);
+                        const tokenUri = await nftContract.tokenURI(tokenId);
+                        const li = document.createElement('li');
+                        li.innerHTML = `Token ID: ${tokenId} | URI: <a href="${tokenUri}" target="_blank">${tokenUri}</a>`;
+                        nftsList.appendChild(li);
+                    }
+                } catch (e) {
+                    nftsList.innerHTML = `<li>Error: Gagal mengambil data NFT (${e.message})</li>`;
+                }
+                document.getElementById('nftsSection').style.display = nftBalance > 0 ? 'block' : 'none';
+
+                // Staking
+                const stakingType = document.getElementById('stakingType');
+                const stakingDetails = document.getElementById('stakingDetails');
+                const rewardDestination = document.getElementById('rewardDestination');
+                try {
+                    const rewardDest = await stakingContract.rewardDestination(walletAddress);
+                    rewardDestination.textContent = `Reward Destination: ${['Staked', 'Stash', 'None'][rewardDest]}`;
+                    let stakingInfo = '';
+                    try {
+                        const currentEra = await stakingContract.currentEra();
+                        const validatorPrefs = await stakingContract.validatorPrefs(walletAddress);
+                        const isValidator = validatorPrefs[0] > 0 || validatorPrefs[1];
+                        if (isValidator) {
+                            const stake = await stakingContract.erasValidatorTotalStake(currentEra, walletAddress);
+                            stakingType.textContent = 'Type: Validator';
+                            stakingInfo = `Staked: ${ethers.utils.formatUnits(stake.total, NATIVE_TOKEN_DECIMALS)} ${NATIVE_TOKEN_SYMBOL}<br>Own Stake: ${ethers.utils.formatUnits(stake.own, NATIVE_TOKEN_DECIMALS)} ${NATIVE_TOKEN_SYMBOL}<br>Commission: ${(validatorPrefs[0] / 1_000_000_000 * 100).toFixed(2)}%`;
+                        } else {
+                            try {
+                                const nominatorPrefs = await stakingContract.nominatorPrefs(walletAddress);
+                                if (nominatorPrefs.targets.length > 0) {
+                                    stakingType.textContent = 'Type: Nominator';
+                                    stakingInfo = `Validators Nominated: ${nominatorPrefs.targets.join(', ')}`;
+                                } else {
+                                    stakingType.textContent = 'Type: Tidak Staking';
+                                }
+                            } catch (e) {
+                                stakingType.textContent = 'Type: Tidak Staking';
+                                stakingInfo = `Gagal mengambil data nominator: ${e.message}`;
+                            }
+                        }
+                    } catch (e) {
+                        stakingInfo = `Gagal mengambil data validator: ${e.message}`;
+                    }
+                    stakingDetails.innerHTML = stakingInfo;
+                    document.getElementById('stakingSection').style.display = 'block';
+                } catch (e) {
+                    errorDiv.textContent = `Error Staking: ${e.message}`;
+                    document.getElementById('stakingSection').style.display = 'none';
+                }
+            } catch (error) {
+                errorDiv.textContent = `Error Umum: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
