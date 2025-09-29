@@ -1,0 +1,62 @@
+<!-- templates/result.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wallet Tracker Result</title>
+    <style>
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid black; padding: 8px; text-align: left; }
+    </style>
+</head>
+<body>
+    <h1>Wallet: {{ address }}</h1>
+    
+    <h2>Balance</h2>
+    <p>{{ balance }} {{ token_symbol }}</p>
+    
+    <h2>Transactions (Recent 50)</h2>
+    <table>
+        <tr><th>Hash</th><th>From</th><th>To</th><th>Value ({{ token_symbol }})</th><th>Block</th></tr>
+        {% for tx in transactions %}
+            <tr>
+                <td>{{ tx.hash }}</td>
+                <td>{{ tx.from }}</td>
+                <td>{{ tx.to }}</td>
+                <td>{{ tx.value }}</td>
+                <td>{{ tx.blockNumber }}</td>
+            </tr>
+        {% endfor %}
+    </table>
+    
+    <h2>NFTs</h2>
+    <ul>
+    {% for nft in nfts %}
+        {% if nft.error %}
+            <li>Error: {{ nft.error }}</li>
+        {% else %}
+            <li>Token ID: {{ nft.token_id }} | URI: <a href="{{ nft.uri }}">{{ nft.uri }}</a></li>
+        {% endif %}
+    {% endfor %}
+    </ul>
+    
+    <h2>Staking Data</h2>
+    {% if staking.error %}
+        <p>Error: {{ staking.error }}</p>
+    {% else %}
+        <p>Type: {{ staking.type }}</p>
+        {% if staking.staked %}
+            <p>Staked: {{ staking.staked }} {{ token_symbol }}</p>
+        {% endif %}
+        {% if staking.own_stake %}
+            <p>Own Stake: {{ staking.own_stake }} {{ token_symbol }}</p>
+        {% endif %}
+        {% if staking.commission %}
+            <p>Commission: {{ staking.commission }}%</p>
+        {% endif %}
+        {% if staking.targets %}
+            <p>Validators Nominated: {{ staking.targets|join(', ') }}</p>
+        {% endif %}
+        <p>Reward Destination: {{ staking.reward_destination }}</p>
+    {% endif %}
+</body>
+</html>
